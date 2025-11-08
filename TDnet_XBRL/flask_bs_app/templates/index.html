@@ -202,13 +202,11 @@
         </select>
     </div>
 
-    <!-- タブ -->
     <div class="tabs" id="mainTabs" style="display: none;">
         <button class="tab active" onclick="switchTab('bs')">貸借対照表 (BS)</button>
         <button class="tab" onclick="switchTab('pl')">損益計算書 (PL)</button>
     </div>
 
-    <!-- BS タブ -->
     <div id="bs-content" class="tab-content active">
         <div class="controls">
             <label>表示する指標を選択:</label>
@@ -220,12 +218,8 @@
                 <button class="metric-button" data-metric="ppe">有形固定資産</button>
                 <button class="metric-button" data-metric="retainedEarnings">利益剰余金</button>
             </div>
-
             <div class="stock-checkbox">
-                <label>
-                    <input type="checkbox" id="showStockInBS">
-                    株価を重ねて表示
-                </label>
+                <label><input type="checkbox" id="showStockInBS"> 株価を重ねて表示</label>
             </div>
         </div>
 
@@ -247,7 +241,6 @@
         </table>
     </div>
 
-    <!-- PL タブ -->
     <div id="pl-content" class="tab-content">
         <div class="controls">
             <label>表示する指標を選択:</label>
@@ -257,12 +250,8 @@
                 <button class="metric-button" data-metric="ordinaryIncome">経常利益</button>
                 <button class="metric-button" data-metric="netIncome">純利益</button>
             </div>
-
             <div class="stock-checkbox">
-                <label>
-                    <input type="checkbox" id="showStockInPL">
-                    株価を重ねて表示
-                </label>
+                <label><input type="checkbox" id="showStockInPL"> 株価を重ねて表示</label>
             </div>
         </div>
 
@@ -287,575 +276,143 @@
     <div id="loading" style="display:none;">データを読み込んでいます...</div>
 
     <script>
-        let bsChart = null;
-        let plChart = null;
-        let currentBSData = null;
-        let currentPLData = null;
-        let stockPriceData = null;
-        let currentCompanyName = '';
-        let currentCompanyCode = '';
-        let currentBSMetric = 'assets';
-        let currentPLMetric = 'netSales';
+        let bsChart, plChart;
 
-        const bsMetricConfig = {
-            assets: {
-                label: '総資産',
-                color: 'rgb(75, 192, 192)',
-                bgColor: 'rgba(75, 192, 192, 0.2)',
-                unit: '億円',
-                getField: (row) => row.assets
-            },
-            netAssets: {
-                label: '純資産',
-                color: 'rgb(54, 162, 235)',
-                bgColor: 'rgba(54, 162, 235, 0.2)',
-                unit: '億円',
-                getField: (row) => row.netAssets || row.equity
-            },
-            currentAssets: {
-                label: '流動資産',
-                color: 'rgb(255, 206, 86)',
-                bgColor: 'rgba(255, 206, 86, 0.2)',
-                unit: '億円',
-                getField: (row) => row.currentAssets
-            },
-            cash: {
-                label: '現金・預金',
-                color: 'rgb(153, 102, 255)',
-                bgColor: 'rgba(153, 102, 255, 0.2)',
-                unit: '億円',
-                getField: (row) => row.cashAndDeposits || row.cashAndCashEquivalent
-            },
-            ppe: {
-                label: '有形固定資産',
-                color: 'rgb(255, 159, 64)',
-                bgColor: 'rgba(255, 159, 64, 0.2)',
-                unit: '億円',
-                getField: (row) => row.propertyPlantAndEquipment
-            },
-            retainedEarnings: {
-                label: '利益剰余金',
-                color: 'rgb(255, 99, 132)',
-                bgColor: 'rgba(255, 99, 132, 0.2)',
-                unit: '億円',
-                getField: (row) => row.retainedEarnings
-            }
-        };
-
-        const plMetricConfig = {
-            netSales: {
-                label: '売上高',
-                color: 'rgb(75, 192, 192)',
-                bgColor: 'rgba(75, 192, 192, 0.2)',
-                unit: '億円',
-                getField: (row) => row.netSales || row.revenueIFRS
-            },
-            operatingIncome: {
-                label: '営業利益',
-                color: 'rgb(54, 162, 235)',
-                bgColor: 'rgba(54, 162, 235, 0.2)',
-                unit: '億円',
-                getField: (row) => row.operatingIncome || row.operatingProfitLossIFRS
-            },
-            ordinaryIncome: {
-                label: '経常利益',
-                color: 'rgb(255, 206, 86)',
-                bgColor: 'rgba(255, 206, 86, 0.2)',
-                unit: '億円',
-                getField: (row) => row.ordinaryIncome
-            },
-            netIncome: {
-                label: '純利益',
-                color: 'rgb(153, 102, 255)',
-                bgColor: 'rgba(153, 102, 255, 0.2)',
-                unit: '億円',
-                getField: (row) => row.netIncome || row.profitLossIFRS
-            }
-        };
-
-        // 会社リストを読み込み
         async function loadCompanies() {
+            const select = document.getElementById('companySelect');
+            const loading = document.getElementById('loading');
             try {
+                loading.style.display = 'block';
                 const response = await fetch('/api/companies');
                 const companies = await response.json();
-
-                const select = document.getElementById('companySelect');
                 select.innerHTML = '<option value="">会社を選択してください</option>';
-
-                companies.forEach(company => {
-                    const option = document.createElement('option');
-                    option.value = company.code;
-                    let text = `${company.name} (${company.code})`;
-                    if (company.hasBS) text += ' [BS]';
-                    if (company.hasPL) text += ' [PL]';
-                    option.textContent = text;
-                    select.appendChild(option);
+                companies.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.code;
+                    opt.textContent = `${c.name} (${c.code})`;
+                    select.appendChild(opt);
                 });
-            } catch (error) {
-                console.error('会社リストの読み込みエラー:', error);
-            }
-        }
-
-        // BSデータを読み込み
-        async function loadBSData(companyName) {
-            try {
-                const response = await fetch(`/api/bs-data/${encodeURIComponent(companyName)}`);
-                const data = await response.json();
-
-                currentBSData = data;
-                currentBSData.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                updateBSChart();
-                updateBSTable();
-            } catch (error) {
-                console.error('BSデータの読み込みエラー:', error);
-            }
-        }
-
-        // PLデータを読み込み
-        async function loadPLData(code) {
-            try {
-                const response = await fetch(`/api/pl-data/${code}`);
-                const data = await response.json();
-
-                if (data.error) {
-                    console.log('PLデータがありません');
-                    return;
-                }
-
-                currentPLData = data;
-                currentPLData.sort((a, b) => new Date(a.publicDay) - new Date(b.publicDay));
-
-                updatePLChart();
-                updatePLTable();
-            } catch (error) {
-                console.error('PLデータの読み込みエラー:', error);
-            }
-        }
-
-        // 株価データを読み込み
-        async function loadStockPrice(code) {
-            try {
-                const response = await fetch(`/api/stock-price/${code}`);
-                if (response.ok) {
-                    stockPriceData = await response.json();
-                } else {
-                    stockPriceData = null;
-                    console.log('株価データが取得できませんでした');
-                }
-            } catch (error) {
-                console.error('株価データの読み込みエラー:', error);
-                stockPriceData = null;
-            }
-        }
-
-        // BSに対応する株価データを取得
-        function getStockDataForBS(bsData) {
-            if (!stockPriceData || stockPriceData.length === 0) return [];
-
-            return bsData.map(bsItem => {
-                const bsDate = new Date(bsItem.date);
-
-                // 最も近い株価データを探す
-                let closestStock = null;
-                let minDiff = Infinity;
-
-                stockPriceData.forEach(stockItem => {
-                    const stockDate = new Date(stockItem.date);
-                    const diff = Math.abs(bsDate - stockDate);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestStock = stockItem;
+                loading.style.display = 'none';
+                select.addEventListener('change', async () => {
+                    if (select.value) {
+                        const company = companies.find(c => c.code === select.value);
+                        await loadAllData(company.code, company.name);
                     }
                 });
-
-                return closestStock ? closestStock.close : null;
-            });
-        }
-
-        // PLに対応する株価データを取得
-        function getStockDataForPL(plData) {
-            if (!stockPriceData || stockPriceData.length === 0) return [];
-
-            return plData.map(plItem => {
-                const plDate = new Date(plItem.publicDay);
-
-                // 最も近い株価データを探す
-                let closestStock = null;
-                let minDiff = Infinity;
-
-                stockPriceData.forEach(stockItem => {
-                    const stockDate = new Date(stockItem.date);
-                    const diff = Math.abs(plDate - stockDate);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestStock = stockItem;
-                    }
-                });
-
-                return closestStock ? closestStock.close : null;
-            });
-        }
-
-        // BSグラフを更新
-        function updateBSChart() {
-            if (!currentBSData) return;
-
-            const config = bsMetricConfig[currentBSMetric];
-            const showStock = document.getElementById('showStockInBS').checked;
-
-            const filteredData = currentBSData.filter(item => {
-                const value = config.getField(item);
-                return value != null && value !== 0;
-            });
-
-            if (filteredData.length === 0) {
-                alert('選択された指標のデータがありません');
-                return;
+                document.getElementById('searchButton').addEventListener('click', searchByCode);
+            } catch (err) {
+                console.error('会社リスト取得失敗:', err);
+                alert('会社リストの取得に失敗しました');
+                loading.style.display = 'none';
             }
-
-            const labels = filteredData.map(item => {
-                const date = new Date(item.date);
-                return `${date.getFullYear()}/${date.getMonth()+1}/${date.getDate()}`;
-            });
-
-            const values = filteredData.map(item => config.getField(item));
-
-            const datasets = [{
-                label: `${config.label} (${config.unit})`,
-                data: values,
-                borderColor: config.color,
-                backgroundColor: config.bgColor,
-                tension: 0.1,
-                fill: true,
-                yAxisID: 'y'
-            }];
-
-            // 株価データを追加
-            const scales = {
-                y: {
-                    type: 'linear',
-                    position: 'left',
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: `${config.label} (${config.unit})`
-                    }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: '決算日'
-                    }
-                }
-            };
-
-            if (showStock && stockPriceData && stockPriceData.length > 0) {
-                const stockValues = getStockDataForBS(filteredData);
-
-                datasets.push({
-                    label: '株価 (円)',
-                    data: stockValues,
-                    borderColor: 'rgb(255, 99, 132)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                    tension: 0.1,
-                    fill: false,
-                    yAxisID: 'y1',
-                    pointRadius: 4,
-                    borderWidth: 2
-                });
-
-                scales.y1 = {
-                    type: 'linear',
-                    position: 'right',
-                    beginAtZero: false,
-                    title: {
-                        display: true,
-                        text: '株価 (円)'
-                    },
-                    grid: {
-                        drawOnChartArea: false
-                    }
-                };
-            }
-
-            if (bsChart) bsChart.destroy();
-
-            const ctx = document.getElementById('bsChart').getContext('2d');
-            bsChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    },
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: `${currentCompanyName} - ${config.label}推移${showStock ? ' & 株価' : ''}`,
-                            font: { size: 18 }
-                        },
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
-                    scales: scales
-                }
-            });
         }
 
-        // PLグラフを更新
-        function updatePLChart() {
-            if (!currentPLData) return;
-
-            const config = plMetricConfig[currentPLMetric];
-            const showStock = document.getElementById('showStockInPL').checked;
-
-            const filteredData = currentPLData.filter(item => {
-                const value = config.getField(item);
-                return value != null && value !== 0;
-            });
-
-            if (filteredData.length === 0) {
-                alert('選択された指標のデータがありません');
-                return;
-            }
-
-            const labels = filteredData.map(item => {
-                const date = new Date(item.publicDay);
-                return `${date.getFullYear()}/${date.getMonth()+1}/${date.getDate()}`;
-            });
-
-            const values = filteredData.map(item => config.getField(item));
-
-            const datasets = [{
-                label: `${config.label} (${config.unit})`,
-                data: values,
-                backgroundColor: config.bgColor,
-                borderColor: config.color,
-                borderWidth: 2,
-                yAxisID: 'y'
-            }];
-
-            // 株価データを追加
-            const scales = {
-                y: {
-                    type: 'linear',
-                    position: 'left',
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: `${config.label} (${config.unit})`
-                    }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: '公表日'
-                    }
-                }
-            };
-
-            if (showStock && stockPriceData && stockPriceData.length > 0) {
-                const stockValues = getStockDataForPL(filteredData);
-
-                datasets.push({
-                    label: '株価 (円)',
-                    data: stockValues,
-                    type: 'line',
-                    borderColor: 'rgb(255, 99, 132)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                    tension: 0.1,
-                    fill: false,
-                    yAxisID: 'y1',
-                    pointRadius: 4,
-                    borderWidth: 2
-                });
-
-                scales.y1 = {
-                    type: 'linear',
-                    position: 'right',
-                    beginAtZero: false,
-                    title: {
-                        display: true,
-                        text: '株価 (円)'
-                    },
-                    grid: {
-                        drawOnChartArea: false
-                    }
-                };
-            }
-
-            if (plChart) plChart.destroy();
-
-            const ctx = document.getElementById('plChart').getContext('2d');
-            plChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    },
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: `${currentCompanyName} - ${config.label}推移${showStock ? ' & 株価' : ''}`,
-                            font: { size: 18 }
-                        },
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
-                    scales: scales
-                }
-            });
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`${tab}-content`).classList.add('active');
         }
 
-        // BSテーブルを更新
-        function updateBSTable() {
-            if (!currentBSData) return;
-
-            const tbody = document.querySelector('#bsTable tbody');
-            tbody.innerHTML = '';
-
-            currentBSData.forEach(row => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${row.date || 'N/A'}</td>
-                    <td>${row.assets ? row.assets.toFixed(1) : 'N/A'}</td>
-                    <td>${row.netAssets ? row.netAssets.toFixed(1) : 'N/A'}</td>
-                    <td>${row.equity ? row.equity.toFixed(1) : 'N/A'}</td>
-                    <td>${row.currentAssets ? row.currentAssets.toFixed(1) : 'N/A'}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            document.getElementById('bsTable').style.display = 'table';
-        }
-
-        // PLテーブルを更新
-        function updatePLTable() {
-            if (!currentPLData) return;
-
-            const tbody = document.querySelector('#plTable tbody');
-            tbody.innerHTML = '';
-
-            currentPLData.forEach(row => {
-                const tr = document.createElement('tr');
-                const netSales = row.netSales || row.revenueIFRS;
-                const operatingIncome = row.operatingIncome || row.operatingProfitLossIFRS;
-                const netIncome = row.netIncome || row.profitLossIFRS;
-
-                tr.innerHTML = `
-                    <td>${row.publicDay || 'N/A'}</td>
-                    <td>${netSales ? netSales.toFixed(1) : 'N/A'}</td>
-                    <td>${operatingIncome ? operatingIncome.toFixed(1) : 'N/A'}</td>
-                    <td>${row.ordinaryIncome ? row.ordinaryIncome.toFixed(1) : 'N/A'}</td>
-                    <td>${netIncome ? netIncome.toFixed(1) : 'N/A'}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            document.getElementById('plTable').style.display = 'table';
-        }
-
-        // タブ切り替え
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-
-            event.target.classList.add('active');
-            document.getElementById(`${tabName}-content`).classList.add('active');
-        }
-
-        // データ読み込み
-        async function loadAllData(code, companyName) {
-            document.getElementById('loading').style.display = 'block';
+        async function loadAllData(code, name) {
             document.getElementById('mainTabs').style.display = 'flex';
-
-            currentCompanyCode = code;
-            currentCompanyName = companyName;
-
+            document.getElementById('loading').style.display = 'block';
             try {
-                await loadStockPrice(code);
-                await loadBSData(companyName);
-                await loadPLData(code);
-            } catch (error) {
-                console.error('データ読み込みエラー:', error);
-                alert('データの読み込みに失敗しました');
+                const [bs, pl, stock] = await Promise.all([
+                    fetch(`/api/bs-data/${name}`).then(r => r.json()),
+                    fetch(`/api/pl-data/${code}`).then(r => r.json()),
+                    fetch(`/api/stock-price/${code}`).then(r => r.json())
+                ]);
+                renderChart('bs', bs, stock);
+                renderChart('pl', pl, stock);
+            } catch (err) {
+                console.error(err);
+                alert('データの取得に失敗しました');
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
         }
 
-        // BSメトリックボタンのイベント
-        document.querySelectorAll('#bsMetrics .metric-button').forEach(button => {
-            button.addEventListener('click', () => {
-                document.querySelectorAll('#bsMetrics .metric-button').forEach(btn => {
-                    btn.classList.remove('active');
+        function renderChart(type, data, stock) {
+            const ctx = document.getElementById(`${type}Chart`).getContext('2d');
+            const metricButtons = document.querySelectorAll(`#${type}Metrics .metric-button`);
+            let activeMetric = document.querySelector(`#${type}Metrics .metric-button.active`).dataset.metric;
+
+            metricButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    metricButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    activeMetric = btn.dataset.metric;
+                    drawChart();
                 });
-                button.classList.add('active');
-                currentBSMetric = button.dataset.metric;
-                updateBSChart();
             });
-        });
 
-        // PLメトリックボタンのイベント
-        document.querySelectorAll('#plMetrics .metric-button').forEach(button => {
-            button.addEventListener('click', () => {
-                document.querySelectorAll('#plMetrics .metric-button').forEach(btn => {
-                    btn.classList.remove('active');
+            const showStockCheckbox = document.getElementById(`showStockIn${type.toUpperCase()}`);
+            showStockCheckbox.addEventListener('change', drawChart);
+
+            function drawChart() {
+                const labels = data.map(d => d.date || d.term);
+                const metricValues = data.map(d => d[activeMetric]);
+                const datasets = [{
+                    label: activeMetric,
+                    data: metricValues,
+                    borderColor: '#2196F3',
+                    backgroundColor: 'rgba(33,150,243,0.2)',
+                    yAxisID: 'y'
+                }];
+                if (showStockCheckbox.checked && stock && stock.length) {
+                    datasets.push({
+                        label: '株価',
+                        data: stock.map(s => s.price),
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255,152,0,0.2)',
+                        yAxisID: 'y1'
+                    });
+                }
+                if (type === 'bs' && bsChart) bsChart.destroy();
+                if (type === 'pl' && plChart) plChart.destroy();
+                const chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets },
+                    options: {
+                        responsive: true,
+                        interaction: { mode: 'index', intersect: false },
+                        stacked: false,
+                        plugins: { legend: { position: 'top' } },
+                        scales: {
+                            y: { type: 'linear', position: 'left', title: { display: true, text: '金額 (百万円)' } },
+                            y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '株価 (円)' } }
+                        }
+                    }
                 });
-                button.classList.add('active');
-                currentPLMetric = button.dataset.metric;
-                updatePLChart();
-            });
-        });
-
-        // 株価チェックボックスのイベント
-        document.getElementById('showStockInBS').addEventListener('change', () => {
-            updateBSChart();
-        });
-
-        document.getElementById('showStockInPL').addEventListener('change', () => {
-            updatePLChart();
-        });
-
-        // 会社選択
-        document.getElementById('companySelect').addEventListener('change', async (e) => {
-            const code = e.target.value;
-            if (!code) return;
-
-            const companies = await fetch('/api/companies').then(r => r.json());
-            const company = companies.find(c => c.code === code);
-            if (company) {
-                await loadAllData(code, company.name);
+                if (type === 'bs') bsChart = chart; else plChart = chart;
             }
-        });
-
-        // 証券コード検索
-        document.getElementById('searchButton').addEventListener('click', searchByCode);
-        document.getElementById('codeInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') searchByCode();
-        });
+            drawChart();
+        }
 
         async function searchByCode() {
-            const code =
+            const code = document.getElementById('codeInput').value.trim();
+            if (!code) {
+                alert('証券コードを入力してください');
+                return;
+            }
+            try {
+                const companies = await fetch('/api/companies').then(r => r.json());
+                const company = companies.find(c => c.code === code);
+                if (!company) {
+                    alert('指定された証券コードの会社が見つかりません');
+                    return;
+                }
+                const select = document.getElementById('companySelect');
+                select.value = company.code;
+                await loadAllData(company.code, company.name);
+            } catch (error) {
+                console.error('検索エラー:', error);
+                alert('会社データの検索に失敗しました');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', loadCompanies);
+    </script>
+</body>
+</html>
