@@ -46,6 +46,10 @@
             border-radius: 4px;
             margin-bottom: 10px;
         }
+        input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
         button {
             width: 100%;
             padding: 10px;
@@ -127,6 +131,19 @@
             height: 500px;
             margin-bottom: 20px;
         }
+        .stock-checkbox {
+            background: #fff3e0;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border-left: 4px solid #ff9800;
+        }
+        .stock-checkbox label {
+            display: inline;
+            margin-bottom: 0;
+            color: #e65100;
+            cursor: pointer;
+        }
         #loading {
             text-align: center;
             padding: 40px;
@@ -171,7 +188,7 @@
 
     <div class="info-box">
         <p><strong>💡 このツールについて：</strong></p>
-        <p>企業の貸借対照表(BS)と損益計算書(PL)のデータを時系列で可視化します。総資産、純資産、売上高、営業利益などの推移を確認できます。</p>
+        <p>企業の貸借対照表(BS)と損益計算書(PL)のデータを時系列で可視化します。チェックボックスをONにすると株価を重ねて表示できます。</p>
     </div>
 
     <div class="controls">
@@ -189,7 +206,6 @@
     <div class="tabs" id="mainTabs" style="display: none;">
         <button class="tab active" onclick="switchTab('bs')">貸借対照表 (BS)</button>
         <button class="tab" onclick="switchTab('pl')">損益計算書 (PL)</button>
-        <button class="tab" onclick="switchTab('stock')">株価</button>
     </div>
 
     <!-- BS タブ -->
@@ -203,6 +219,13 @@
                 <button class="metric-button" data-metric="cash">現金・預金</button>
                 <button class="metric-button" data-metric="ppe">有形固定資産</button>
                 <button class="metric-button" data-metric="retainedEarnings">利益剰余金</button>
+            </div>
+
+            <div class="stock-checkbox">
+                <label>
+                    <input type="checkbox" id="showStockInBS">
+                    株価を重ねて表示
+                </label>
             </div>
         </div>
 
@@ -234,6 +257,13 @@
                 <button class="metric-button" data-metric="ordinaryIncome">経常利益</button>
                 <button class="metric-button" data-metric="netIncome">純利益</button>
             </div>
+
+            <div class="stock-checkbox">
+                <label>
+                    <input type="checkbox" id="showStockInPL">
+                    株価を重ねて表示
+                </label>
+            </div>
         </div>
 
         <div class="chart-container">
@@ -254,19 +284,11 @@
         </table>
     </div>
 
-    <!-- 株価タブ -->
-    <div id="stock-content" class="tab-content">
-        <div class="chart-container">
-            <canvas id="stockChart"></canvas>
-        </div>
-    </div>
-
     <div id="loading" style="display:none;">データを読み込んでいます...</div>
 
     <script>
         let bsChart = null;
         let plChart = null;
-        let stockChart = null;
         let currentBSData = null;
         let currentPLData = null;
         let stockPriceData = null;
@@ -417,7 +439,6 @@
                 const response = await fetch(`/api/stock-price/${code}`);
                 if (response.ok) {
                     stockPriceData = await response.json();
-                    updateStockChart();
                 } else {
                     stockPriceData = null;
                     console.log('株価データが取得できませんでした');
@@ -428,11 +449,61 @@
             }
         }
 
+        // BSに対応する株価データを取得
+        function getStockDataForBS(bsData) {
+            if (!stockPriceData || stockPriceData.length === 0) return [];
+
+            return bsData.map(bsItem => {
+                const bsDate = new Date(bsItem.date);
+
+                // 最も近い株価データを探す
+                let closestStock = null;
+                let minDiff = Infinity;
+
+                stockPriceData.forEach(stockItem => {
+                    const stockDate = new Date(stockItem.date);
+                    const diff = Math.abs(bsDate - stockDate);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestStock = stockItem;
+                    }
+                });
+
+                return closestStock ? closestStock.close : null;
+            });
+        }
+
+        // PLに対応する株価データを取得
+        function getStockDataForPL(plData) {
+            if (!stockPriceData || stockPriceData.length === 0) return [];
+
+            return plData.map(plItem => {
+                const plDate = new Date(plItem.publicDay);
+
+                // 最も近い株価データを探す
+                let closestStock = null;
+                let minDiff = Infinity;
+
+                stockPriceData.forEach(stockItem => {
+                    const stockDate = new Date(stockItem.date);
+                    const diff = Math.abs(plDate - stockDate);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestStock = stockItem;
+                    }
+                });
+
+                return closestStock ? closestStock.close : null;
+            });
+        }
+
         // BSグラフを更新
         function updateBSChart() {
             if (!currentBSData) return;
 
             const config = bsMetricConfig[currentBSMetric];
+            const showStock = document.getElementById('showStockInBS').checked;
+
             const filteredData = currentBSData.filter(item => {
                 const value = config.getField(item);
                 return value != null && value !== 0;
@@ -450,6 +521,64 @@
 
             const values = filteredData.map(item => config.getField(item));
 
+            const datasets = [{
+                label: `${config.label} (${config.unit})`,
+                data: values,
+                borderColor: config.color,
+                backgroundColor: config.bgColor,
+                tension: 0.1,
+                fill: true,
+                yAxisID: 'y'
+            }];
+
+            // 株価データを追加
+            const scales = {
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: `${config.label} (${config.unit})`
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: '決算日'
+                    }
+                }
+            };
+
+            if (showStock && stockPriceData && stockPriceData.length > 0) {
+                const stockValues = getStockDataForBS(filteredData);
+
+                datasets.push({
+                    label: '株価 (円)',
+                    data: stockValues,
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    tension: 0.1,
+                    fill: false,
+                    yAxisID: 'y1',
+                    pointRadius: 4,
+                    borderWidth: 2
+                });
+
+                scales.y1 = {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: '株価 (円)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                };
+            }
+
             if (bsChart) bsChart.destroy();
 
             const ctx = document.getElementById('bsChart').getContext('2d');
@@ -457,25 +586,27 @@
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: `${config.label} (${config.unit})`,
-                        data: values,
-                        borderColor: config.color,
-                        backgroundColor: config.bgColor,
-                        tension: 0.1,
-                        fill: true
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     plugins: {
                         title: {
                             display: true,
-                            text: `${currentCompanyName} - ${config.label}推移`,
+                            text: `${currentCompanyName} - ${config.label}推移${showStock ? ' & 株価' : ''}`,
                             font: { size: 18 }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
-                    }
+                    },
+                    scales: scales
                 }
             });
         }
@@ -485,6 +616,8 @@
             if (!currentPLData) return;
 
             const config = plMetricConfig[currentPLMetric];
+            const showStock = document.getElementById('showStockInPL').checked;
+
             const filteredData = currentPLData.filter(item => {
                 const value = config.getField(item);
                 return value != null && value !== 0;
@@ -502,6 +635,64 @@
 
             const values = filteredData.map(item => config.getField(item));
 
+            const datasets = [{
+                label: `${config.label} (${config.unit})`,
+                data: values,
+                backgroundColor: config.bgColor,
+                borderColor: config.color,
+                borderWidth: 2,
+                yAxisID: 'y'
+            }];
+
+            // 株価データを追加
+            const scales = {
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: `${config.label} (${config.unit})`
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: '公表日'
+                    }
+                }
+            };
+
+            if (showStock && stockPriceData && stockPriceData.length > 0) {
+                const stockValues = getStockDataForPL(filteredData);
+
+                datasets.push({
+                    label: '株価 (円)',
+                    data: stockValues,
+                    type: 'line',
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    tension: 0.1,
+                    fill: false,
+                    yAxisID: 'y1',
+                    pointRadius: 4,
+                    borderWidth: 2
+                });
+
+                scales.y1 = {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: '株価 (円)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                };
+            }
+
             if (plChart) plChart.destroy();
 
             const ctx = document.getElementById('plChart').getContext('2d');
@@ -509,61 +700,27 @@
                 type: 'bar',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: `${config.label} (${config.unit})`,
-                        data: values,
-                        backgroundColor: config.bgColor,
-                        borderColor: config.color,
-                        borderWidth: 2
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     plugins: {
                         title: {
                             display: true,
-                            text: `${currentCompanyName} - ${config.label}推移`,
+                            text: `${currentCompanyName} - ${config.label}推移${showStock ? ' & 株価' : ''}`,
                             font: { size: 18 }
-                        }
-                    }
-                }
-            });
-        }
-
-        // 株価グラフを更新
-        function updateStockChart() {
-            if (!stockPriceData) return;
-
-            const labels = stockPriceData.map(item => item.date);
-            const values = stockPriceData.map(item => item.close);
-
-            if (stockChart) stockChart.destroy();
-
-            const ctx = document.getElementById('stockChart').getContext('2d');
-            stockChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: '株価 (円)',
-                        data: values,
-                        borderColor: 'rgb(255, 99, 132)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                        tension: 0.1,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        title: {
+                        },
+                        legend: {
                             display: true,
-                            text: `${currentCompanyName} - 株価推移`,
-                            font: { size: 18 }
+                            position: 'top'
                         }
-                    }
+                    },
+                    scales: scales
                 }
             });
         }
@@ -638,9 +795,9 @@
             currentCompanyName = companyName;
 
             try {
+                await loadStockPrice(code);
                 await loadBSData(companyName);
                 await loadPLData(code);
-                await loadStockPrice(code);
             } catch (error) {
                 console.error('データ読み込みエラー:', error);
                 alert('データの読み込みに失敗しました');
@@ -673,6 +830,15 @@
             });
         });
 
+        // 株価チェックボックスのイベント
+        document.getElementById('showStockInBS').addEventListener('change', () => {
+            updateBSChart();
+        });
+
+        document.getElementById('showStockInPL').addEventListener('change', () => {
+            updatePLChart();
+        });
+
         // 会社選択
         document.getElementById('companySelect').addEventListener('change', async (e) => {
             const code = e.target.value;
@@ -692,30 +858,4 @@
         });
 
         async function searchByCode() {
-            const code = document.getElementById('codeInput').value.trim();
-            if (!code) {
-                alert('証券コードを入力してください');
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/company/${code}`);
-                const company = await response.json();
-
-                if (company.error) {
-                    alert(`証券コード ${code} の企業が見つかりませんでした`);
-                } else {
-                    document.getElementById('companySelect').value = code;
-                    await loadAllData(code, company.name);
-                }
-            } catch (error) {
-                console.error('検索エラー:', error);
-                alert('検索に失敗しました');
-            }
-        }
-
-        // 初期化
-        loadCompanies();
-    </script>
-</body>
-</html>
+            const code =
