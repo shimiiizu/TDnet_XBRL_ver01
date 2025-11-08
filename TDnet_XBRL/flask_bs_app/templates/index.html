@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>貸借対照表（BS）分析</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+        button:hover {
+            background-color: #1976D2;
+        }
+        .metric-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .metric-button {
+            padding: 12px;
+            font-size: 14px;
+            background-color: #e0e0e0;
+            color: #333;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .metric-button:hover {
+            background-color: #d0d0d0;
+        }
+        .metric-button.active {
+            background-color: #2196F3;
+            color: white;
+            border-color: #1976D2;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            height: 500px;
+        }
+        #loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .info-box {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        .info-box p {
+            margin: 5px 0;
+            color: #1565C0;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 貸借対照表（BS）分析ツール</h1>
+
+    <div class="info-box">
+        <p><strong>💡 このツールについて：</strong></p>
+        <p>企業の貸借対照表（Balance Sheet）データを時系列で可視化します。総資産、純資産、現金などの推移を確認できます。</p>
+    </div>
+
+    <div class="controls">
+        <label for="codeInput">証券コードで検索:</label>
+        <input type="text" id="codeInput" placeholder="例: 3679" />
+        <button id="searchButton">検索</button>
+
+        <label for="companySelect" style="margin-top: 20px;">または会社を選択:</label>
+        <select id="companySelect">
+            <option value="">読み込み中...</option>
+        </select>
+
+        <div class="metric-selector">
+            <button class="metric-button active" data-metric="assets">総資産</button>
+            <button class="metric-button" data-metric="netAssets">純資産</button>
+            <button class="metric-button" data-metric="currentAssets">流動資産</button>
+            <button class="metric-button" data-metric="cash">現金・預金</button>
+            <button class="metric-button" data-metric="ppe">有形固定資産</button>
+            <button class="metric-button" data-metric="retainedEarnings">利益剰余金</button>
+        </div>
+
+        <label style="margin-top: 20px;">
+            <input type="checkbox" id="showStockPrice" style="width: auto; margin-right: 5px;">
+            株価を重ねて表示
+        </label>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="bsChart"></canvas>
+    </div>
+
+    <div id="loading" style="display:none;">データを読み込んでいます...</div>
+
+    <script>
+        let chart = null;
+        let currentData = null;
+        let stockPriceData = null;
+        let currentCompanyName = '';
+        let currentCompanyCode = '';
+        let currentMetric = 'assets';
+        const ctx = document.getElementById('bsChart').getContext('2d');
+
+        const metricConfig = {
+            assets: {
+                label: '総資産',
+                color: 'rgb(75, 192, 192)',
+                bgColor: 'rgba(75, 192, 192, 0.2)',
+                unit: '億円',
+                getField: (row) => row.assets
+            },
+            netAssets: {
+                label: '純資産',
+                color: 'rgb(54, 162, 235)',
+                bgColor: 'rgba(54, 162, 235, 0.2)',
+                unit: '億円',
+                getField: (row) => row.netAssets || row.equity
+            },
+            currentAssets: {
+                label: '流動資産',
+                color: 'rgb(255, 206, 86)',
+                bgColor: 'rgba(255, 206, 86, 0.2)',
+                unit: '億円',
+                getField: (row) => row.currentAssets
+            },
+            cash: {
+                label: '現金・預金',
+                color: 'rgb(153, 102, 255)',
+                bgColor: 'rgba(153, 102, 255, 0.2)',
+                unit: '億円',
+                getField: (row) => row.cashAndDeposits || row.cashAndCashEquivalent
+            },
+            ppe: {
+                label: '有形固定資産',
+                color: 'rgb(255, 159, 64)',
+                bgColor: 'rgba(255, 159, 64, 0.2)',
+                unit: '億円',
+                getField: (row) => row.propertyPlantAndEquipment
+            },
+            retainedEarnings: {
+                label: '利益剰余金',
+                color: 'rgb(255, 99, 132)',
+                bgColor: 'rgba(255, 99, 132, 0.2)',
+                unit: '億円',
+                getField: (row) => row.retainedEarnings
+            }
+        };
+
+        // 会社リストを読み込み
+        async function loadCompanies() {
+            try {
+                const response = await fetch('/api/companies');
+                const companies = await response.json();
+
+                const select = document.getElementById('companySelect');
+                select.innerHTML = '<option value="">会社を選択してください</option>';
+
+                companies.forEach(company => {
+                    const option = document.createElement('option');
+                    option.value = company.name;
+                    option.textContent = `${company.name} (${company.code})`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('会社リストの読み込みエラー:', error);
+            }
+        }
+
+        // BSデータを読み込み
+        async function loadBSData(companyName) {
+            if (!companyName) return;
+
+            currentCompanyName = companyName;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch(`/api/bs-data/${encodeURIComponent(companyName)}`);
+                const data = await response.json();
+
+                currentData = data;
+                currentData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                // 証券コードを取得
+                const companies = await fetch('/api/companies').then(r => r.json());
+                const company = companies.find(c => c.name === companyName);
+                if (company) {
+                    currentCompanyCode = company.code;
+                }
+
+                // 株価データも読み込み
+                await loadStockPrice();
+
+                updateChart();
+            } catch (error) {
+                console.error('BSデータの読み込みエラー:', error);
+                alert('データの読み込みに失敗しました');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 株価データを読み込み
+        async function loadStockPrice() {
+            if (!currentCompanyCode) return;
+
+            try {
+                const response = await fetch(`/api/stock-price/${currentCompanyCode}`);
+                if (response.ok) {
+                    stockPriceData = await response.json();
+                } else {
+                    stockPriceData = null;
+                    console.log('株価データが取得できませんでした');
+                }
+            } catch (error) {
+                console.error('株価データの読み込みエラー:', error);
+                stockPriceData = null;
+            }
+        }
+
+        // グラフを更新
+        function updateChart() {
+            if (!currentData) return;
+
+            const config = metricConfig[currentMetric];
+            const showStock = document.getElementById('showStockPrice').checked;
+
+            // データをフィルタリング
+            const filteredData = currentData.filter(item => {
+                const value = config.getField(item);
+                return value != null && value !== 0;
+            });
+
+            if (filteredData.length === 0) {
+                alert('選択された指標のデータがありません');
+                return;
+            }
+
+            const labels = filteredData.map(item => {
+                const date = new Date(item.date);
+                return `${date.getFullYear()}/${date.getMonth()+1}/${date.getDate()}`;
+            });
+
+            const values = filteredData.map(item => config.getField(item));
+
+            // データセットを準備
+            const datasets = [{
+                label: `${config.label} (${config.unit})`,
+                data: values,
+                borderColor: config.color,
+                backgroundColor: config.bgColor,
+                tension: 0.1,
+                fill: true,
+                yAxisID: 'y'
+            }];
+
+            // 株価データを追加
+            if (showStock && stockPriceData && stockPriceData.length > 0) {
+                // BSデータの日付範囲を取得
+                const bsDates = filteredData.map(item => new Date(item.date));
+                const minDate = new Date(Math.min(...bsDates));
+                const maxDate = new Date(Math.max(...bsDates));
+
+                // 株価データをフィルタリング
+                const filteredStockData = stockPriceData.filter(item => {
+                    const stockDate = new Date(item.date);
+                    return stockDate >= minDate && stockDate <= maxDate;
+                });
+
+                // BSの決算日に最も近い株価を取得
+                const stockValues = filteredData.map(bsItem => {
+                    const bsDate = new Date(bsItem.date);
+
+                    // 最も近い株価データを探す
+                    let closestStock = null;
+                    let minDiff = Infinity;
+
+                    filteredStockData.forEach(stockItem => {
+                        const stockDate = new Date(stockItem.date);
+                        const diff = Math.abs(bsDate - stockDate);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestStock = stockItem;
+                        }
+                    });
+
+                    return closestStock ? closestStock.close : null;
+                });
+
+                datasets.push({
+                    label: '株価 (円)',
+                    data: stockValues,
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    tension: 0.1,
+                    fill: false,
+                    yAxisID: 'y1',
+                    pointRadius: 3
+                });
+            }
+
+            // 既存のチャートを破棄
+            if (chart) {
+                chart.destroy();
+            }
+
+            // Y軸の設定
+            const scales = {
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: `${config.label} (${config.unit})`
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: '決算日'
+                    }
+                }
+            };
+
+            // 株価用のY軸を追加
+            if (showStock && stockPriceData && stockPriceData.length > 0) {
+                scales.y1 = {
+                    type: 'linear',
+                    position: 'right',
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: '株価 (円)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                };
+            }
+
+            // 新しいチャートを作成
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${currentCompanyName} - ${config.label}推移${showStock ? ' & 株価' : ''}`,
+                            font: {
+                                size: 18
+                            }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: scales
+                }
+            });
+        }
+
+        // 指標ボタンのイベントリスナー
+        document.querySelectorAll('.metric-button').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.metric-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+
+                button.classList.add('active');
+                currentMetric = button.dataset.metric;
+                updateChart();
+            });
+        });
+
+        // 株価チェックボックスのイベントリスナー
+        document.getElementById('showStockPrice').addEventListener('change', () => {
+            updateChart();
+        });
+
+        // 会社選択時のイベントリスナー
+        document.getElementById('companySelect').addEventListener('change', (e) => {
+            loadBSData(e.target.value);
+        });
+
+        // 証券コード検索機能
+        document.getElementById('searchButton').addEventListener('click', searchByCode);
+        document.getElementById('codeInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchByCode();
+            }
+        });
+
+        async function searchByCode() {
+            const code = document.getElementById('codeInput').value.trim();
+            if (!code) {
+                alert('証券コードを入力してください');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch(`/api/company/${encodeURIComponent(code)}`);
+
+                if (response.ok) {
+                    const company = await response.json();
+                    if (company.error) {
+                        alert(`証券コード ${code} の企業が見つかりませんでした`);
+                        document.getElementById('loading').style.display = 'none';
+                    } else {
+                        document.getElementById('companySelect').value = company.name;
+                        await loadBSData(company.name);
+                    }
+                } else {
+                    alert(`証券コード ${code} の企業が見つかりませんでした`);
+                    document.getElementById('loading').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('検索エラー:', error);
+                alert('検索に失敗しました');
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // ページ読み込み時に会社リストを取得
+        loadCompanies();
+    </script>
+</body>
+</html>
