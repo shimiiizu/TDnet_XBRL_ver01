@@ -222,13 +222,11 @@ def get_pl_data(code):
             'code': row['Code'],
             'fileName': row['FileName'],
             'publicDay': row['PublicDay'],
-            # 日本GAAP
             'netSales': row['NetSales'],
             'sellingExpenses': row['SellingGeneralAndAdministrativeExpenses'],
             'operatingIncome': row['OperatingIncome'],
             'ordinaryIncome': row['OrdinaryIncome'],
             'netIncome': row['NetIncome'],
-            # IFRS
             'revenueIFRS': row['RevenueIFRS'],
             'sellingExpensesIFRS': row['SellingGeneralAndAdministrativeExpensesIFRS'],
             'operatingProfitLossIFRS': row['OperatingProfitLossIFRS'],
@@ -334,49 +332,3 @@ if __name__ == '__main__':
         app.run(debug=True, port=5001)
     else:
         print("エラー: データベースが見つかりません")
-```
-
-## 追加された主な機能
-
-### 1. **新しいエンドポイント**
-
-- ** ` / api / pl - data / < code > ` **: 証券コードでPLデータを取得
-- ** ` / api / financial - summary / < code > ` **: BSとPLの統合データを取得
-
-### 2. **既存エンドポイントの拡張**
-
-- ** ` / api / companies
-` **: BSとPLの両方から会社リストを取得し、各社がBSとPLのどちらのデータを持っているか表示
-- ** ` / api / company / < code > ` **: PLデータの有無も返すように拡張
-
-### 3. **PLデータの取得項目**
-
-#### 日本GAAP:
-- 売上高(NetSales)
-- 販管費(SellingGeneralAndAdministrativeExpenses)
-- 営業利益(OperatingIncome)
-- 経常利益(OrdinaryIncome)
-- 純利益(NetIncome)
-
-#### IFRS:
-- 収益(RevenueIFRS)
-- 販管費(SellingGeneralAndAdministrativeExpensesIFRS)
-- 営業利益(OperatingProfitLossIFRS)
-- 当期利益(ProfitLossIFRS)
-- 希薄化後1株当たり利益(DilutedEarningsLossPerShareIFRS)
-
-## 使用例
-
-### PLデータのみ取得:
-```
-GET / api / pl - data / 9504
-```
-
-### BSとPLの統合データ取得:
-```
-GET / api / financial - summary / 9504
-```
-
-### 会社リスト（BS/PLの有無付き）:
-```
-GET / api / companies
